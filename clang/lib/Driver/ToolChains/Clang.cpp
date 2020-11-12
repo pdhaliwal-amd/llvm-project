@@ -1196,7 +1196,8 @@ void Clang::AddPreprocessingOptions(Compilation &C, const JobAction &JA,
   // If we are offloading to a target via OpenMP we need to include the
   // openmp_wrappers folder which contains alternative system headers.
   if (JA.isDeviceOffloading(Action::OFK_OpenMP) &&
-      getToolChain().getTriple().isNVPTX()){
+      (getToolChain().getTriple().isNVPTX() ||
+       getToolChain().getTriple().isAMDGCN())) {
     if (!Args.hasArg(options::OPT_nobuiltininc)) {
       // Add openmp_wrappers/* to our system include path.  This lets us wrap
       // standard library headers.
@@ -3800,8 +3801,15 @@ static void RenderDebugOptions(const ToolChain &TC, const Driver &D,
         DebuggerTuning = llvm::DebuggerKind::LLDB;
       else if (A->getOption().matches(options::OPT_gsce))
         DebuggerTuning = llvm::DebuggerKind::SCE;
-      else
+      else {
         DebuggerTuning = llvm::DebuggerKind::GDB;
+        if (T.isAMDGCN()) {
+          CmdArgs.push_back("-mllvm");
+          CmdArgs.push_back("-amdgpu-spill-cfi-saved-regs");
+          CmdArgs.push_back("-mllvm");
+          CmdArgs.push_back("-disable-dwarf-locations");
+        }
+      }
     }
   }
 
@@ -4859,7 +4867,6 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
     getTargetFeatures(D, *TC.getAuxTriple(), HostArgs, CmdArgs,
                       /*ForAS*/ false, /*IsAux*/ true);
   }
-
   TC.addClangTargetOptions(Args, CmdArgs, JA.getOffloadingDeviceKind());
 
   // FIXME: Handle -mtune=.
@@ -5751,7 +5758,8 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
     // Imitate GCC 4.2.1 by default if -fms-compatibility is not in effect.
     GNUCVer = VersionTuple(4, 2, 1);
   }
-  if (!GNUCVer.empty()) {
+  if (C.getDefaultToolChain().getArch() != llvm::Triple::amdgcn &&
+      !GNUCVer.empty()) {
     CmdArgs.push_back(
         Args.MakeArgString("-fgnuc-version=" + GNUCVer.getAsString()));
   }
@@ -6236,6 +6244,10 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   // along to tell the frontend that it is generating code for a device, so that
   // only the relevant declarations are emitted.
   if (IsOpenMPDevice) {
+    // AMDGPUPromoteAllocaToVector causes wrong answers in ACCEL 552, 557, 559
+    CmdArgs.push_back("-mllvm");
+    CmdArgs.push_back("-disable-promote-alloca-to-vector=true");
+
     CmdArgs.push_back("-fopenmp-is-device");
     if (OpenMPDeviceInput) {
       CmdArgs.push_back("-fopenmp-host-ir-file-path");
@@ -7295,7 +7307,9 @@ void OffloadBundler::ConstructJob(Compilation &C, const JobAction &JA,
     Triples += Action::GetOffloadKindName(CurKind);
     Triples += '-';
     Triples += CurTC->getTriple().normalize();
-    if (CurKind == Action::OFK_HIP && CurDep->getOffloadingArch()) {
+    if ((CurKind == Action::OFK_HIP || CurKind == Action::OFK_OpenMP ||
+         CurKind == Action::OFK_Cuda) &&
+        CurDep->getOffloadingArch()) {
       Triples += '-';
       Triples += CurDep->getOffloadingArch();
     }
@@ -7330,7 +7344,7 @@ void OffloadBundler::ConstructJob(Compilation &C, const JobAction &JA,
   C.addCommand(std::make_unique<Command>(
       JA, *this, ResponseFileSupport::None(),
       TCArgs.MakeArgString(getToolChain().GetProgramPath(getShortName())),
-      CmdArgs, None, Output));
+      CmdArgs, Inputs, Output));
 }
 
 void OffloadBundler::ConstructJobMultipleOutputs(
@@ -7351,6 +7365,7 @@ void OffloadBundler::ConstructJobMultipleOutputs(
 
   assert(Inputs.size() == 1 && "Expecting to unbundle a single file!");
   InputInfo Input = Inputs.front();
+  StringRef FileName = Input.getFilename();
 
   // Get the type.
   CmdArgs.push_back(TCArgs.MakeArgString(
@@ -7368,7 +7383,9 @@ void OffloadBundler::ConstructJobMultipleOutputs(
     Triples += Action::GetOffloadKindName(Dep.DependentOffloadKind);
     Triples += '-';
     Triples += Dep.DependentToolChain->getTriple().normalize();
-    if (Dep.DependentOffloadKind == Action::OFK_HIP &&
+    if ((Dep.DependentOffloadKind == Action::OFK_HIP ||
+         Dep.DependentOffloadKind == Action::OFK_OpenMP ||
+         Dep.DependentOffloadKind == Action::OFK_Cuda) &&
         !Dep.DependentBoundArch.empty()) {
       Triples += '-';
       Triples += Dep.DependentBoundArch;
@@ -7396,7 +7413,7 @@ void OffloadBundler::ConstructJobMultipleOutputs(
   C.addCommand(std::make_unique<Command>(
       JA, *this, ResponseFileSupport::None(),
       TCArgs.MakeArgString(getToolChain().GetProgramPath(getShortName())),
-      CmdArgs, None, Outputs));
+      CmdArgs, Inputs, Outputs));
 }
 
 void OffloadWrapper::ConstructJob(Compilation &C, const JobAction &JA,

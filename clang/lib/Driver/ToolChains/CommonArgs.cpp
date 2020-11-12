@@ -623,6 +623,18 @@ void tools::addLTOOptions(const ToolChain &ToolChain, const ArgList &Args,
   renderRemarksHotnessOptions(Args, CmdArgs);
 }
 
+void tools::addOpenMPRuntimeSpecificRPath(const ToolChain &TC,
+                                          const ArgList &Args,
+                                          ArgStringList &CmdArgs) {
+  const Driver &D = TC.getDriver();
+  std::string CandidateRPath = D.Dir + "/../lib";
+
+  if (TC.getVFS().exists(CandidateRPath)) {
+    CmdArgs.push_back("-rpath");
+    CmdArgs.push_back(Args.MakeArgString(CandidateRPath.c_str()));
+  }
+}
+
 void tools::addArchSpecificRPath(const ToolChain &TC, const ArgList &Args,
                                  ArgStringList &CmdArgs) {
   // Enable -frtlib-add-rpath by default for the case of VE.
@@ -674,6 +686,9 @@ bool tools::addOpenMPRuntime(ArgStringList &CmdArgs, const ToolChain &TC,
 
   if (RTKind == Driver::OMPRT_GOMP && GompNeedsRT)
       CmdArgs.push_back("-lrt");
+
+  if (RTKind == Driver::OMPRT_OMP)
+    addOpenMPRuntimeSpecificRPath(TC, Args, CmdArgs);
 
   if (IsOffloadingHost)
     CmdArgs.push_back("-lomptarget");

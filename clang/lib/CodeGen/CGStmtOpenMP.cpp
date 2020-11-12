@@ -462,6 +462,7 @@ static llvm::Function *emitOutlinedFunctionPrologue(
     }
     if (ArgType->isVariablyModifiedType())
       ArgType = getCanonicalParamType(Ctx, ArgType);
+
     VarDecl *Arg;
     if (DebugFunctionDecl && (CapVar || I->capturesThis())) {
       Arg = ParmVarDecl::Create(
@@ -592,16 +593,22 @@ CodeGenFunction::GenerateOpenMPCapturedStmtFunction(const CapturedStmt &S,
   FunctionArgList Args;
   llvm::MapVector<const Decl *, std::pair<const VarDecl *, Address>> LocalAddrs;
   llvm::DenseMap<const Decl *, std::pair<const Expr *, llvm::Value *>> VLASizes;
+  // AMDGCN does not generate wrapper kernels properly, fails to launch kernel.
+  if (CGM.getTriple().isAMDGCN())
+    NeedWrapperFunction = false;
   SmallString<256> Buffer;
   llvm::raw_svector_ostream Out(Buffer);
   Out << CapturedStmtInfo->getHelperName();
+  bool isKernel = (Out.str().find("__omp_offloading_") != std::string::npos);
   if (NeedWrapperFunction)
     Out << "_debug__";
   FunctionOptions FO(&S, !NeedWrapperFunction, /*RegisterCastedArgsOnly=*/false,
                      Out.str(), Loc);
-  llvm::Function *F = emitOutlinedFunctionPrologue(*this, Args, LocalAddrs,
-                                                   VLASizes, CXXThisValue, FO);
+  llvm::Function *F = emitOutlinedFunctionPrologue(
+      *this, Args, LocalAddrs, VLASizes, CXXThisValue, FO);
   CodeGenFunction::OMPPrivateScope LocalScope(*this);
+  if ((CGM.getTriple().isAMDGCN()) && isKernel)
+    F->setCallingConv(llvm::CallingConv::AMDGPU_KERNEL);
   for (const auto &LocalAddrPair : LocalAddrs) {
     if (LocalAddrPair.second.first) {
       LocalScope.addPrivate(LocalAddrPair.second.first, [&LocalAddrPair]() {
@@ -627,9 +634,17 @@ CodeGenFunction::GenerateOpenMPCapturedStmtFunction(const CapturedStmt &S,
   Args.clear();
   LocalAddrs.clear();
   VLASizes.clear();
-  llvm::Function *WrapperF =
-      emitOutlinedFunctionPrologue(WrapperCGF, Args, LocalAddrs, VLASizes,
-                                   WrapperCGF.CXXThisValue, WrapperFO);
+  SmallString<256> Buffer2;
+  llvm::raw_svector_ostream Out2(Buffer2);
+  Out2 << CapturedStmtInfo->getHelperName();
+  isKernel = (Out2.str().find("__omp_offloading_") != std::string::npos);
+
+  llvm::Function *WrapperF = emitOutlinedFunctionPrologue(
+      WrapperCGF, Args, LocalAddrs, VLASizes, WrapperCGF.CXXThisValue,
+      WrapperFO);
+  if ((CGM.getTriple().isAMDGCN()) && isKernel)
+    WrapperF->setCallingConv(llvm::CallingConv::AMDGPU_KERNEL);
+
   llvm::SmallVector<llvm::Value *, 4> CallArgs;
   for (const auto *Arg : Args) {
     llvm::Value *CallArg;
