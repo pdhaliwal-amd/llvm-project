@@ -9876,11 +9876,10 @@ void CGOpenMPRuntime::emitTargetNumIterationsCall(
   if (!TD)
     return;
   const auto *LD = cast<OMPLoopDirective>(TD);
-  auto &&CodeGen = [LD, DeviceID, SizeEmitter, &D, this](CodeGenFunction &CGF,
-                                                         PrePostActionTy &) {
+  auto &&CodeGen = [LD, DeviceID, SizeEmitter, this](CodeGenFunction &CGF,
+                                                     PrePostActionTy &) {
     if (llvm::Value *NumIterations = SizeEmitter(CGF, *LD)) {
-      llvm::Value *RTLoc = emitUpdateLocation(CGF, D.getBeginLoc());
-      llvm::Value *Args[] = {RTLoc, DeviceID, NumIterations};
+      llvm::Value *Args[] = {DeviceID, NumIterations};
       CGF.EmitRuntimeCall(
           OMPBuilder.getOrCreateRuntimeFunction(
               CGM.getModule(), OMPRTL___kmpc_push_target_tripcount),
@@ -9965,9 +9964,6 @@ void CGOpenMPRuntime::emitTargetCall(
     llvm::Value *NumTeams = emitNumTeamsForTargetDirective(CGF, D);
     llvm::Value *NumThreads = emitNumThreadsForTargetDirective(CGF, D);
 
-    // Source location for the ident struct
-    llvm::Value *RTLoc = emitUpdateLocation(CGF, D.getBeginLoc());
-
     // Emit tripcount for the target loop-based directive.
     emitTargetNumIterationsCall(CGF, D, DeviceID, SizeEmitter);
 
@@ -10007,8 +10003,7 @@ void CGOpenMPRuntime::emitTargetCall(
       // passed to the runtime library - a 32-bit integer with the value zero.
       assert(NumThreads && "Thread limit expression should be available along "
                            "with number of teams.");
-      llvm::Value *OffloadingArgs[] = {RTLoc,
-                                       DeviceID,
+      llvm::Value *OffloadingArgs[] = {DeviceID,
                                        OutlinedFnID,
                                        PointerNum,
                                        InputInfo.BasePointersArray.getPointer(),
@@ -10026,8 +10021,7 @@ void CGOpenMPRuntime::emitTargetCall(
                                    : OMPRTL___tgt_target_teams_mapper),
           OffloadingArgs);
     } else {
-      llvm::Value *OffloadingArgs[] = {RTLoc,
-                                       DeviceID,
+      llvm::Value *OffloadingArgs[] = {DeviceID,
                                        OutlinedFnID,
                                        PointerNum,
                                        InputInfo.BasePointersArray.getPointer(),
@@ -10781,19 +10775,10 @@ void CGOpenMPRuntime::emitTargetDataCalls(
 
     // Emit the number of elements in the offloading arrays.
     llvm::Value *PointerNum = CGF.Builder.getInt32(Info.NumberOfPtrs);
-    //
-    // Source location for the ident struct
-    llvm::Value *RTLoc = emitUpdateLocation(CGF, D.getBeginLoc());
 
-    llvm::Value *OffloadingArgs[] = {RTLoc,
-                                     DeviceID,
-                                     PointerNum,
-                                     BasePointersArrayArg,
-                                     PointersArrayArg,
-                                     SizesArrayArg,
-                                     MapTypesArrayArg,
-                                     MapNamesArrayArg,
-                                     MappersArrayArg};
+    llvm::Value *OffloadingArgs[] = {
+        DeviceID,      PointerNum,       BasePointersArrayArg, PointersArrayArg,
+        SizesArrayArg, MapTypesArrayArg, MapNamesArrayArg,     MappersArrayArg};
     CGF.EmitRuntimeCall(
         OMPBuilder.getOrCreateRuntimeFunction(
             CGM.getModule(), OMPRTL___tgt_target_data_begin_mapper),
@@ -10806,8 +10791,8 @@ void CGOpenMPRuntime::emitTargetDataCalls(
   };
 
   // Generate code for the closing of the data region.
-  auto &&EndThenGen = [this, Device, &Info, &D](CodeGenFunction &CGF,
-                                                PrePostActionTy &) {
+  auto &&EndThenGen = [this, Device, &Info](CodeGenFunction &CGF,
+                                            PrePostActionTy &) {
     assert(Info.isValid() && "Invalid data environment closing arguments.");
 
     llvm::Value *BasePointersArrayArg = nullptr;
@@ -10833,18 +10818,9 @@ void CGOpenMPRuntime::emitTargetDataCalls(
     // Emit the number of elements in the offloading arrays.
     llvm::Value *PointerNum = CGF.Builder.getInt32(Info.NumberOfPtrs);
 
-    // Source location for the ident struct
-    llvm::Value *RTLoc = emitUpdateLocation(CGF, D.getBeginLoc());
-
-    llvm::Value *OffloadingArgs[] = {RTLoc,
-                                     DeviceID,
-                                     PointerNum,
-                                     BasePointersArrayArg,
-                                     PointersArrayArg,
-                                     SizesArrayArg,
-                                     MapTypesArrayArg,
-                                     MapNamesArrayArg,
-                                     MappersArrayArg};
+    llvm::Value *OffloadingArgs[] = {
+        DeviceID,      PointerNum,       BasePointersArrayArg, PointersArrayArg,
+        SizesArrayArg, MapTypesArrayArg, MapNamesArrayArg,     MappersArrayArg};
     CGF.EmitRuntimeCall(
         OMPBuilder.getOrCreateRuntimeFunction(
             CGM.getModule(), OMPRTL___tgt_target_data_end_mapper),
@@ -10918,11 +10894,7 @@ void CGOpenMPRuntime::emitTargetDataStandAloneCall(
     llvm::Constant *PointerNum =
         CGF.Builder.getInt32(InputInfo.NumberOfTargetItems);
 
-    // Source location for the ident struct
-    llvm::Value *RTLoc = emitUpdateLocation(CGF, D.getBeginLoc());
-
-    llvm::Value *OffloadingArgs[] = {RTLoc,
-                                     DeviceID,
+    llvm::Value *OffloadingArgs[] = {DeviceID,
                                      PointerNum,
                                      InputInfo.BasePointersArray.getPointer(),
                                      InputInfo.PointersArray.getPointer(),
