@@ -117,63 +117,6 @@ const char *AMDGCN::OpenMPLinker::constructOmpExtraCmds(
       CmdArgs.push_back(II.getFilename());
   }
 
-  ArgStringList LibraryPaths;
-
-  addDirectoryList(Args, LibraryPaths, "", "HIP_DEVICE_LIB_PATH");
-
-  // Add compiler path libdevice last as lowest priority search
-  LibraryPaths.push_back(
-      Args.MakeArgString(C.getDriver().Dir + "/../amdgcn/bitcode"));
-  LibraryPaths.push_back(
-      Args.MakeArgString(C.getDriver().Dir + "/../../amdgcn/bitcode"));
-  LibraryPaths.push_back(
-      Args.MakeArgString(C.getDriver().Dir + "/../lib/libdevice"));
-  LibraryPaths.push_back(Args.MakeArgString(C.getDriver().Dir + "/../lib"));
-  LibraryPaths.push_back(
-      Args.MakeArgString(C.getDriver().Dir + "/../../lib/libdevice"));
-  LibraryPaths.push_back(Args.MakeArgString(C.getDriver().Dir + "/../../lib"));
-
-  // Add bitcode library in --hip-device-lib.
-  for (auto Lib : Args.getAllArgValues(options::OPT_hip_device_lib_EQ)) {
-    BCLibs.push_back(Args.MakeArgString(Lib));
-  }
-
-  // Add libm for Fortran.
-  if (C.getDriver().IsFlangMode()) {
-    BCLibs.push_back(Args.MakeArgString("libm-amdgcn-" + SubArchName + ".bc"));
-    BCLibs.push_back(Args.MakeArgString("ocml.bc"));
-    if (Args.hasArg(options::OPT_cl_finite_math_only))
-      BCLibs.push_back(Args.MakeArgString("oclc_finite_only_on.bc"));
-    else
-      BCLibs.push_back(Args.MakeArgString("oclc_finite_only_off.bc"));
-  }
-
-  llvm::StringRef WaveFrontSizeBC;
-  std::string GFXVersion = SubArchName.drop_front(3).str();
-  if (stoi(GFXVersion) < 1000)
-    WaveFrontSizeBC = "oclc_wavefrontsize64_on.bc";
-  else
-    WaveFrontSizeBC = "oclc_wavefrontsize64_off.bc";
-
-  // FIXME: remove double link of hip aompextras, ockl, and WaveFrontSizeBC
-  if (Args.hasArg(options::OPT_cuda_device_only))
-    BCLibs.append(
-        {Args.MakeArgString("libomptarget-amdgcn-" + SubArchName + ".bc"),
-         "hip.bc", "ockl.bc",
-         std::string(WaveFrontSizeBC)});
-  else {
-    BCLibs.append(
-        {Args.MakeArgString("libomptarget-amdgcn-" + SubArchName + ".bc"),
-         Args.MakeArgString("libaompextras-amdgcn-" + SubArchName + ".bc"),
-         "hip.bc", "ockl.bc",
-         Args.MakeArgString("libbc-hostrpc-amdgcn.a"),
-         std::string(WaveFrontSizeBC)});
-  }
-
-  for (auto Lib : BCLibs)
-    addBCLib(C.getDriver(), Args, CmdArgs, LibraryPaths, Lib,
-             /* PostClang Link? */ false);
-
   // Get the environment variable ROCM_SELECT_ARGS and add to select-link.
   Optional<std::string> OptEnv = llvm::sys::Process::GetEnv("ROCM_SELECT_ARGS");
   if (OptEnv.hasValue()) {
@@ -199,20 +142,9 @@ const char *AMDGCN::OpenMPLinker::constructLLVMLinkCommand(
     StringRef OutputFilePrefix) const {
   ArgStringList CmdArgs;
 
-  bool DoOverride = JA.getOffloadingDeviceKind() == Action::OFK_OpenMP;
-  StringRef overrideInputsFile =
-      DoOverride
-          ? constructOmpExtraCmds(C, JA, Inputs, Args, SubArchName,
-			          OutputFilePrefix)
-          : "";
-
-  // Add the input bc's created by compile step.
-  if (overrideInputsFile.empty()) {
-    for (const auto &II : Inputs)
-      if (II.isFilename())
-        CmdArgs.push_back(II.getFilename());
-  } else
-    CmdArgs.push_back(Args.MakeArgString(overrideInputsFile));
+  for (const auto &II : Inputs)
+    if (II.isFilename())
+      CmdArgs.push_back(II.getFilename());
 
   // Get the environment variable ROCM_LINK_ARGS and add to llvm-link.
   Optional<std::string> OptEnv = llvm::sys::Process::GetEnv("ROCM_LINK_ARGS");
@@ -464,59 +396,69 @@ void AMDGPUOpenMPToolChain::addClangTargetOptions(
 
   // Maintain compatability with --hip-device-lib.
   auto BCLibs = DriverArgs.getAllArgValues(options::OPT_hip_device_lib_EQ);
-  if (!BCLibs.empty()) {
-    for (auto Lib : BCLibs)
-      addBCLib(getDriver(), DriverArgs, CC1Args, LibraryPaths, Lib,
-               /* PostClang Link? */ true);
-
-  } else {
-    if (!RocmInstallation.hasDeviceLibrary()) {
-      getDriver().Diag(diag::err_drv_no_rocm_device_lib) << 0;
-      return;
-    }
-
-    // Add compiler path libdevice last as lowest priority search
-    LibraryPaths.push_back(
-        DriverArgs.MakeArgString(getDriver().Dir + "/../amdgcn/bitcode"));
-    LibraryPaths.push_back(
-        DriverArgs.MakeArgString(getDriver().Dir + "/../../amdgcn/bitcode"));
-    LibraryPaths.push_back(
-        DriverArgs.MakeArgString(getDriver().Dir + "/../lib/libdevice"));
-    LibraryPaths.push_back(
-        DriverArgs.MakeArgString(getDriver().Dir + "/../lib"));
-    LibraryPaths.push_back(
-        DriverArgs.MakeArgString(getDriver().Dir + "/../../lib/libdevice"));
-    LibraryPaths.push_back(
-	DriverArgs.MakeArgString(getDriver().Dir + "/../../lib"));
-
-    std::string LibDeviceFile = RocmInstallation.getLibDeviceFile(CanonArch);
-    if (LibDeviceFile.empty()) {
-      getDriver().Diag(diag::err_drv_no_rocm_device_lib) << 1 << GpuArch;
-      return;
-    }
-
-    // If --hip-device-lib is not set, add the default bitcode libraries.
-    // TODO: There are way too many flags that change this. Do we need to check
-    // them all?
-    bool DAZ = DriverArgs.hasFlag(options::OPT_fcuda_flush_denormals_to_zero,
-                                  options::OPT_fno_cuda_flush_denormals_to_zero,
-                                  getDefaultDenormsAreZeroForTarget(Kind));
-    // TODO: Check standard C++ flags?
-    bool FiniteOnly = false;
-    bool UnsafeMathOpt = false;
-    bool FastRelaxedMath = false;
-    bool CorrectSqrt = true;
-    bool Wave64 = isWave64(DriverArgs, Kind);
-
-    // Add the HIP specific bitcode library.
-    CC1Args.push_back("-mlink-builtin-bitcode");
-    CC1Args.push_back(DriverArgs.MakeArgString(RocmInstallation.getHIPPath()));
-
-    // Add the generic set of libraries.
-    RocmInstallation.addCommonBitcodeLibCC1Args(
-      DriverArgs, CC1Args, LibDeviceFile, Wave64, DAZ, FiniteOnly,
-      UnsafeMathOpt, FastRelaxedMath, CorrectSqrt);
+  if (!RocmInstallation.hasDeviceLibrary()) {
+    getDriver().Diag(diag::err_drv_no_rocm_device_lib) << 0;
+    return;
   }
+
+  // Add compiler path libdevice last as lowest priority search
+  LibraryPaths.push_back(
+                         DriverArgs.MakeArgString(getDriver().Dir + "/../amdgcn/bitcode"));
+  LibraryPaths.push_back(
+                         DriverArgs.MakeArgString(getDriver().Dir + "/../../amdgcn/bitcode"));
+  LibraryPaths.push_back(
+                         DriverArgs.MakeArgString(getDriver().Dir + "/../lib/libdevice"));
+  LibraryPaths.push_back(
+                         DriverArgs.MakeArgString(getDriver().Dir + "/../lib"));
+  LibraryPaths.push_back(
+                         DriverArgs.MakeArgString(getDriver().Dir + "/../../lib/libdevice"));
+  LibraryPaths.push_back(
+                         DriverArgs.MakeArgString(getDriver().Dir + "/../../lib"));
+
+  llvm::StringRef SubArchName = GpuArch;
+  std::string GFXVersion = GpuArch.drop_front(3).str();
+
+  auto &Args = DriverArgs;
+  // FIXME: remove double link of hip aompextras, ockl, and WaveFrontSizeBC
+  if (DriverArgs.hasArg(options::OPT_cuda_device_only))
+    BCLibs.push_back(Args.MakeArgString("libomptarget-amdgcn-" + SubArchName + ".bc"));
+
+  else {
+    BCLibs.push_back(
+        Args.MakeArgString("libomptarget-amdgcn-" + SubArchName + ".bc"));
+  }
+
+  for (auto Lib : BCLibs)
+    addBCLib(getDriver(), Args, CC1Args, LibraryPaths, Lib,
+             /* PostClang Link? */ true);
+
+  std::string LibDeviceFile = RocmInstallation.getLibDeviceFile(CanonArch);
+  if (LibDeviceFile.empty()) {
+    getDriver().Diag(diag::err_drv_no_rocm_device_lib) << 1 << GpuArch;
+    return;
+  }
+
+  // If --hip-device-lib is not set, add the default bitcode libraries.
+  // TODO: There are way too many flags that change this. Do we need to check
+  // them all?
+  bool DAZ = DriverArgs.hasFlag(options::OPT_fcuda_flush_denormals_to_zero,
+                                options::OPT_fno_cuda_flush_denormals_to_zero,
+                                getDefaultDenormsAreZeroForTarget(Kind));
+  // TODO: Check standard C++ flags?
+  bool FiniteOnly = false;
+  bool UnsafeMathOpt = false;
+  bool FastRelaxedMath = false;
+  bool CorrectSqrt = true;
+  bool Wave64 = isWave64(DriverArgs, Kind);
+
+  // Add the HIP specific bitcode library.
+  CC1Args.push_back("-mlink-builtin-bitcode");
+  CC1Args.push_back(DriverArgs.MakeArgString(RocmInstallation.getHIPPath()));
+
+  // Add the generic set of libraries.
+  RocmInstallation.addCommonBitcodeLibCC1Args(
+                                              DriverArgs, CC1Args, LibDeviceFile, Wave64, DAZ, FiniteOnly,
+                                              UnsafeMathOpt, FastRelaxedMath, CorrectSqrt);
 }
 
 llvm::opt::DerivedArgList *
