@@ -142,20 +142,9 @@ const char *AMDGCN::OpenMPLinker::constructLLVMLinkCommand(
     StringRef OutputFilePrefix) const {
   ArgStringList CmdArgs;
 
-  bool DoOverride = false;
-  StringRef overrideInputsFile =
-      DoOverride
-          ? constructOmpExtraCmds(C, JA, Inputs, Args, SubArchName,
-			          OutputFilePrefix)
-          : "";
-
-  // Add the input bc's created by compile step.
-  if (overrideInputsFile.empty()) {
-    for (const auto &II : Inputs)
-      if (II.isFilename())
-        CmdArgs.push_back(II.getFilename());
-  } else
-    CmdArgs.push_back(Args.MakeArgString(overrideInputsFile));
+  for (const auto &II : Inputs)
+    if (II.isFilename())
+      CmdArgs.push_back(II.getFilename());
 
   // Get the environment variable ROCM_LINK_ARGS and add to llvm-link.
   Optional<std::string> OptEnv = llvm::sys::Process::GetEnv("ROCM_LINK_ARGS");
@@ -426,13 +415,8 @@ void AMDGPUOpenMPToolChain::addClangTargetOptions(
   LibraryPaths.push_back(
                          DriverArgs.MakeArgString(getDriver().Dir + "/../../lib"));
 
-  llvm::StringRef WaveFrontSizeBC;
   llvm::StringRef SubArchName = GpuArch;
   std::string GFXVersion = GpuArch.drop_front(3).str();
-  if (stoi(GFXVersion) < 1000)
-    WaveFrontSizeBC = "oclc_wavefrontsize64_on.bc";
-  else
-    WaveFrontSizeBC = "oclc_wavefrontsize64_off.bc";
 
   auto &Args = DriverArgs;
   // FIXME: remove double link of hip aompextras, ockl, and WaveFrontSizeBC
@@ -442,10 +426,6 @@ void AMDGPUOpenMPToolChain::addClangTargetOptions(
   else {
     BCLibs.push_back(
         Args.MakeArgString("libomptarget-amdgcn-" + SubArchName + ".bc"));
-    BCLibs.push_back(Args.MakeArgString("libaompextras-amdgcn-" + SubArchName + ".bc"));
-    BCLibs.push_back("hip.bc");
-    BCLibs.push_back("ockl.bc");
-    BCLibs.push_back(std::string(WaveFrontSizeBC));
   }
 
   for (auto Lib : BCLibs)
