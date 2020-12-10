@@ -21,7 +21,9 @@
 #include "clang/Basic/Cuda.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/Frontend/OpenMP/OMPGridValues.h"
+#include "llvm/IR/IntrinsicsAMDGPU.h"
 #include "llvm/IR/IntrinsicsNVPTX.h"
+#include "llvm/IR/Metadata.h"
 
 using namespace clang;
 using namespace CodeGen;
@@ -1385,7 +1387,13 @@ void CGOpenMPRuntimeGPU::emitWorkerLoop(CodeGenFunction &CGF,
   // Process work items: outlined parallel functions.
   for (llvm::Function *W : Work) {
     // Try to match this outlined function.
-    llvm::Value *ID = Bld.CreatePointerBitCastOrAddrSpaceCast(W, CGM.Int8PtrTy);
+    llvm::Value *ID =
+        (CGM.getTriple().isAMDGCN())
+            ? Bld.CreateIntToPtr(
+                  llvm::ConstantInt::get(CGM.SizeTy,
+                                         llvm::hash_value(W->getName())),
+                  CGM.Int8PtrTy)
+            : Bld.CreatePointerBitCastOrAddrSpaceCast(W, CGM.Int8PtrTy);
 
     llvm::Value *WorkFnMatch =
         Bld.CreateICmpEQ(Bld.CreateLoad(WorkFn), ID, "work_match");
@@ -1409,6 +1417,7 @@ void CGOpenMPRuntimeGPU::emitWorkerLoop(CodeGenFunction &CGF,
 
     CGF.EmitBlock(CheckNextBB);
   }
+
   // Default case: call to outlined function through pointer if the target
   // region makes a declare target call that may contain an orphaned parallel
   // directive.
@@ -4577,8 +4586,16 @@ bool CGOpenMPRuntimeGPU::hasAllocateAttributeForGlobalVar(const VarDecl *VD,
 
 // Get current CudaArch and ignore any unknown values
 static CudaArch getCudaArch(CodeGenModule &CGM) {
-  if (!CGM.getTarget().hasFeature("ptx"))
+  if (!CGM.getTarget().hasFeature("ptx") &&
+      (CGM.getTriple().getArch() != llvm::Triple::amdgcn))
     return CudaArch::UNKNOWN;
+  if (CGM.getTriple().isAMDGCN())
+    return StringToCudaArch(CGM.getTarget().getTargetOpts().CPU);
+  // FIXME: Can we always just regurn StringToCudaArch(...CPU) here?
+  llvm::StringMap<bool> Features;
+  CGM.getTarget().initFeatureMap(Features, CGM.getDiags(),
+                                 CGM.getTarget().getTargetOpts().CPU,
+                                 CGM.getTarget().getTargetOpts().Features);
   for (const auto &Feature : CGM.getTarget().getTargetOpts().FeatureMap) {
     if (Feature.getValue()) {
       CudaArch Arch = StringToCudaArch(Feature.getKey());
