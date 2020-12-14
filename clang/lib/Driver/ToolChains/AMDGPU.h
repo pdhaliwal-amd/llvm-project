@@ -93,6 +93,14 @@ public:
   /// Should skip argument.
   bool shouldSkipArgument(const llvm::opt::Arg *Arg) const;
 
+  bool SupportsProfiling() const override { return false; }
+  bool useIntegratedAs() const override { return true; }
+  bool isCrossCompiling() const override { return true; }
+
+  bool isPICDefault() const override { return false; }
+  bool isPIEDefault() const override { return false; }
+  bool isPICDefaultForced() const override { return false; }
+
 protected:
   /// Check and diagnose invalid target ID specified by -mcpu.
   void checkTargetID(const llvm::opt::ArgList &DriverArgs) const;

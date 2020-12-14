@@ -660,3 +660,23 @@
 // RUN:   | FileCheck -check-prefix=CHK-FOPENMP-IS-DEVICE %s
 
 // CHK-FOPENMP-IS-DEVICE: clang{{.*}} "-aux-triple" "powerpc64le-unknown-linux" {{.*}}"-fopenmp-is-device" "-fopenmp-host-ir-file-path" {{.*}}.c"
+
+// RUN:   %clang -ccc-print-phases -fopenmp -target x86_64-pc-linux-gnu -fopenmp-targets=amdgcn-amd-amdhsa %s 2>&1 \
+// RUN:   | FileCheck -check-prefix=CHK-PHASES-OFFLOAD-AMDGPU %s
+// CHK-PHASES-OFFLOAD-AMDGPU: 0: input, "[[INPUT:.+\.c]]", c, (host-openmp)
+// CHK-PHASES-OFFLOAD-AMDGPU: 1: preprocessor, {0}, cpp-output, (host-openmp)
+// CHK-PHASES-OFFLOAD-AMDGPU: 2: compiler, {1}, ir, (host-openmp)
+// CHK-PHASES-OFFLOAD-AMDGPU: 3: backend, {2}, assembler, (host-openmp)
+// CHK-PHASES-OFFLOAD-AMDGPU: 4: assembler, {3}, object, (host-openmp)
+// CHK-PHASES-OFFLOAD-AMDGPU: 5: input, "helloworld.c", c, (device-openmp)
+// CHK-PHASES-OFFLOAD-AMDGPU: 6: preprocessor, {5}, cpp-output, (device-openmp)
+// CHK-PHASES-OFFLOAD-AMDGPU: 7: compiler, {6}, ir, (device-openmp)
+// CHK-PHASES-OFFLOAD-AMDGPU: 8: offload, "host-openmp (x86_64-pc-linux-gnu)" {2}, "device-openmp (amdgcn-amd-amdhsa)" {7}, ir
+// CHK-PHASES-OFFLOAD-AMDGPU: 9: backend, {8}, assembler, (device-openmp)
+// CHK-PHASES-OFFLOAD-AMDGPU: 10: assembler, {9}, object, (device-openmp)
+// CHK-PHASES-OFFLOAD-AMDGPU: 11: linker, {10}, image, (device-openmp)
+// CHK-PHASES-OFFLOAD-AMDGPU: 12: offload, "device-openmp (amdgcn-amd-amdhsa)" {11}, image
+// CHK-PHASES-OFFLOAD-AMDGPU: 13: clang-offload-wrapper, {12}, ir, (host-openmp)
+// CHK-PHASES-OFFLOAD-AMDGPU: 14: backend, {13}, assembler, (host-openmp)
+// CHK-PHASES-OFFLOAD-AMDGPU: 15: assembler, {14}, object, (host-openmp)
+// CHK-PHASES-OFFLOAD-AMDGPU: 16: linker, {4, 15}, image, (host-openmp)

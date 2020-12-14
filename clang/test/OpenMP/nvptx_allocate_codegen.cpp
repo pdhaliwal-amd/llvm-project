@@ -1,5 +1,7 @@
 // RUN: %clang_cc1 -verify -fopenmp -triple x86_64-apple-darwin10.6.0 -fopenmp-targets=nvptx64-nvidia-cuda  -emit-llvm-bc -o %t-host.bc %s
-// RUN: %clang_cc1 -verify -fopenmp -triple nvptx64-nvidia-cuda -fopenmp-targets=nvptx64-nvidia-cuda -emit-llvm %s -fopenmp-is-device -fopenmp-host-ir-file-path %t-host.bc -o - -disable-llvm-optzns | FileCheck %s
+// RUN: %clang_cc1 -verify -fopenmp -triple nvptx64-nvidia-cuda -fopenmp-targets=nvptx64-nvidia-cuda -emit-llvm %s -fopenmp-is-device -fopenmp-host-ir-file-path %t-host.bc -o - -disable-llvm-optzns | FileCheck %s --check-prefixes CHECK,NVPTX
+// RUN: %clang_cc1 -verify -fopenmp -triple x86_64-unknown-unknown -fopenmp-targets=amdgcn-amd-amdhsa  -emit-llvm-bc -o %t-host.bc %s
+// RUN: %clang_cc1 -verify -fopenmp -triple amdgcn-amd-amdhsa -fopenmp-targets=amdgcn-amd-amdhsa -emit-llvm %s -fopenmp-is-device -fopenmp-host-ir-file-path %t-host.bc -o - -disable-llvm-optzns | FileCheck %s --check-prefixes CHECK,AMDGPU
 // expected-no-diagnostics
 
 #ifndef HEADER
@@ -74,7 +76,8 @@ int main () {
 }
 
 // CHECK: define {{.*}}i32 @{{.+}}foo{{.+}}()
-// CHECK-NOT: alloca i32,
+// NVPTX-NOT: alloca i32,
+// AMDGPU: alloca i32,
 
 extern template int ST<int>::m;
 
