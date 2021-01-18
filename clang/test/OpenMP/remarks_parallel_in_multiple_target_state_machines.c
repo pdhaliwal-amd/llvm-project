@@ -1,7 +1,9 @@
 // RUN: %clang_cc1                                 -verify=host                                                              -Rpass=openmp -fopenmp -x c++ -triple powerpc64le-unknown-unknown -fopenmp-targets=nvptx64-nvidia-cuda -emit-llvm-bc %s -o %t-ppc-host.bc
 // RUN: %clang_cc1                                 -verify=all,safe                                                          -Rpass=openmp -fopenmp -O2 -x c++ -triple nvptx64-unknown-unknown -fopenmp-targets=nvptx64-nvidia-cuda -emit-llvm %s -fopenmp-is-device -fopenmp-host-ir-file-path %t-ppc-host.bc -o %t.out
 // RUN: %clang_cc1 -fexperimental-new-pass-manager -verify=all,safe                                                          -Rpass=openmp -fopenmp -O2 -x c++ -triple nvptx64-unknown-unknown -fopenmp-targets=nvptx64-nvidia-cuda -emit-llvm %s -fopenmp-is-device -fopenmp-host-ir-file-path %t-ppc-host.bc -o %t.out
-
+// RUN: %clang_cc1                                 -verify=host                                                              -Rpass=openmp -fopenmp -x c++ -triple x86_64-unknown-unknown -fopenmp-targets=amdgcn-amd-amdhsa -emit-llvm-bc %s -o %t-x86_64-host.bc
+// RUN: %clang_cc1                                 -verify=all,safe                                                          -Rpass=openmp -fopenmp -O2 -x c++ -triple amdgcn-amd-amdhsa -fopenmp-targets=amdgcn-amd-amdhsa -emit-llvm %s -fopenmp-is-device -fopenmp-host-ir-file-path %t-x86_64-host.bc -o %t.out
+// RUN: %clang_cc1 -fexperimental-new-pass-manager -verify=all,safe                                                          -Rpass=openmp -fopenmp -O2 -x c++ -triple amdgcn-amd-amdhsa -fopenmp-targets=amdgcn-amd-amdhsa -emit-llvm %s -fopenmp-is-device -fopenmp-host-ir-file-path %t-x86_64-host.bc -o %t.out
 // host-no-diagnostics
 
 void bar1(void) {    // all-remark {{[OMP100] Potentially unknown OpenMP target region caller}}
