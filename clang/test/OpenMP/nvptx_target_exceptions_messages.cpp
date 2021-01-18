@@ -5,6 +5,13 @@
 // RUN:   -fopenmp-targets=nvptx64-nvidia-cuda -emit-llvm %s \
 // RUN:   -fopenmp-is-device -fopenmp-host-ir-file-path %t-ppc-host.bc -o - \
 // RUN:   -fexceptions -fcxx-exceptions -ferror-limit 100
+// RUN: %clang_cc1 -fopenmp -x c++ -triple x86_64-unknown-unknown \
+// RUN:   -verify=host -fopenmp-targets=amdgcn-amd-amdhsa -emit-llvm-bc \
+// RUN:   %s -o %t-x86_64-host.bc -fexceptions -fcxx-exceptions
+// RUN: %clang_cc1 -verify -fopenmp -x c++ -triple amdgcn-amd-amdhsa \
+// RUN:   -fopenmp-targets=amdgcn-amd-amdhsa -emit-llvm %s \
+// RUN:   -fopenmp-is-device -fopenmp-host-ir-file-path %t-x86_64-host.bc -o - \
+// RUN:   -fexceptions -fcxx-exceptions -ferror-limit 10
 
 #ifndef HEADER
 #define HEADER
