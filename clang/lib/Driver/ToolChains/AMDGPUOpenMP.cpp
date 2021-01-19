@@ -255,8 +255,6 @@ void AMDGPUOpenMPToolChain::addClangTargetOptions(
   assert((DeviceOffloadingKind == Action::OFK_HIP ||
           DeviceOffloadingKind == Action::OFK_OpenMP) &&
          "Only HIP offloading kinds are supported for GPUs.");
-  auto Kind = llvm::AMDGPU::parseArchAMDGCN(GpuArch);
-  const StringRef CanonArch = llvm::AMDGPU::getArchNameAMDGCN(Kind);
 
   CC1Args.push_back("-target-cpu");
   CC1Args.push_back(DriverArgs.MakeArgStringRef(GpuArch));
@@ -304,27 +302,6 @@ void AMDGPUOpenMPToolChain::addClangTargetOptions(
   std::string LibOmptargetBC =
       DriverArgs.MakeArgString("libomptarget-amdgcn-" + GpuArch + ".bc");
   addBCLib(getDriver(), DriverArgs, CC1Args, LibraryPaths, LibOmptargetBC);
-
-  std::string LibDeviceFile = RocmInstallation.getLibDeviceFile(CanonArch);
-  if (LibDeviceFile.empty()) {
-    getDriver().Diag(diag::err_drv_no_rocm_device_lib) << 1 << GpuArch;
-    return;
-  }
-
-  bool DAZ = DriverArgs.hasFlag(options::OPT_fcuda_flush_denormals_to_zero,
-                                options::OPT_fno_cuda_flush_denormals_to_zero,
-                                getDefaultDenormsAreZeroForTarget(Kind));
-  // TODO: Check standard C++ flags?
-  bool FiniteOnly = false;
-  bool UnsafeMathOpt = false;
-  bool FastRelaxedMath = false;
-  bool CorrectSqrt = true;
-  bool Wave64 = isWave64(DriverArgs, Kind);
-
-  // Add the generic set of libraries.
-  RocmInstallation.addCommonBitcodeLibCC1Args(
-      DriverArgs, CC1Args, LibDeviceFile, Wave64, DAZ, FiniteOnly,
-      UnsafeMathOpt, FastRelaxedMath, CorrectSqrt);
 }
 
 llvm::opt::DerivedArgList *AMDGPUOpenMPToolChain::TranslateArgs(
