@@ -89,6 +89,7 @@ static void addOptLevelArgs(const llvm::opt::ArgList &Args,
 }
 } // namespace
 
+
 const char *AMDGCN::OpenMPLinker::constructLLVMLinkCommand(
     Compilation &C, const JobAction &JA, const InputInfoList &Inputs,
     const ArgList &Args, StringRef SubArchName,
@@ -100,7 +101,7 @@ const char *AMDGCN::OpenMPLinker::constructLLVMLinkCommand(
       CmdArgs.push_back(II.getFilename());
   // Add an intermediate output file.
   CmdArgs.push_back("-o");
-  auto OutputFileName = getOutputFileName(C, OutputFilePrefix, "-linked", "bc");
+  const char *OutputFileName = getOutputFileName(C, OutputFilePrefix, "-linked", "bc");
   CmdArgs.push_back(OutputFileName);
   const char *Exec =
       Args.MakeArgString(getToolChain().GetProgramPath("llvm-link"));
@@ -128,7 +129,7 @@ const char *AMDGCN::OpenMPLinker::constructOptCommand(
   }
 
   OptArgs.push_back("-o");
-  auto OutputFileName =
+  const char *OutputFileName =
       getOutputFileName(C, OutputFilePrefix, "-optimized", "bc");
   OptArgs.push_back(OutputFileName);
   const char *OptExec =
@@ -297,16 +298,8 @@ void AMDGPUOpenMPToolChain::addClangTargetOptions(
   ArgStringList LibraryPaths;
 
   LibraryPaths.push_back(
-      DriverArgs.MakeArgString(getDriver().Dir + "/../amdgcn/bitcode"));
-  LibraryPaths.push_back(
-      DriverArgs.MakeArgString(getDriver().Dir + "/../../amdgcn/bitcode"));
-  LibraryPaths.push_back(
       DriverArgs.MakeArgString(getDriver().Dir + "/../lib/libdevice"));
   LibraryPaths.push_back(DriverArgs.MakeArgString(getDriver().Dir + "/../lib"));
-  LibraryPaths.push_back(
-      DriverArgs.MakeArgString(getDriver().Dir + "/../../lib/libdevice"));
-  LibraryPaths.push_back(
-      DriverArgs.MakeArgString(getDriver().Dir + "/../../lib"));
 
   std::string LibOmptargetBC =
       DriverArgs.MakeArgString("libomptarget-amdgcn-" + GpuArch + ".bc");
@@ -318,8 +311,6 @@ void AMDGPUOpenMPToolChain::addClangTargetOptions(
     return;
   }
 
-  // TODO: There are way too many flags that change this. Do we need to check
-  // them all?
   bool DAZ = DriverArgs.hasFlag(options::OPT_fcuda_flush_denormals_to_zero,
                                 options::OPT_fno_cuda_flush_denormals_to_zero,
                                 getDefaultDenormsAreZeroForTarget(Kind));
@@ -378,18 +369,7 @@ AMDGPUOpenMPToolChain::GetCXXStdlibType(const ArgList &Args) const {
 
 void AMDGPUOpenMPToolChain::AddClangSystemIncludeArgs(
     const ArgList &DriverArgs, ArgStringList &CC1Args) const {
-  const Driver &D = HostTC.getDriver();
-  CC1Args.push_back("-internal-isystem");
-  CC1Args.push_back(DriverArgs.MakeArgString(D.Dir + "/../include"));
-  CC1Args.push_back("-internal-isystem");
-  CC1Args.push_back(DriverArgs.MakeArgString(D.Dir + "/../../include"));
-
   HostTC.AddClangSystemIncludeArgs(DriverArgs, CC1Args);
-
-  CC1Args.push_back("-internal-isystem");
-  SmallString<128> P(HostTC.getDriver().ResourceDir);
-  llvm::sys::path::append(P, "include/cuda_wrappers");
-  CC1Args.push_back(DriverArgs.MakeArgString(P));
 }
 
 void AMDGPUOpenMPToolChain::AddIAMCUIncludeArgs(const ArgList &Args,
