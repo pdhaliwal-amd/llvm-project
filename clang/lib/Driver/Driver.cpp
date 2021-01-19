@@ -10,6 +10,7 @@
 #include "InputInfo.h"
 #include "ToolChains/AIX.h"
 #include "ToolChains/AMDGPU.h"
+#include "ToolChains/AMDGPUOpenMP.h"
 #include "ToolChains/AVR.h"
 #include "ToolChains/Ananas.h"
 #include "ToolChains/BareMetal.h"
@@ -751,6 +752,20 @@ void Driver::CreateOffloadingDeviceToolChains(Compilation &C,
                 CudaTC = std::make_unique<toolchains::CudaToolChain>(
                     *this, TT, *HostTC, C.getInputArgs(), Action::OFK_OpenMP);
               TC = CudaTC.get();
+            } else if (TT.isAMDGCN()) {
+              const ToolChain *HostTC =
+                  C.getSingleOffloadToolChain<Action::OFK_Host>();
+              const llvm::Triple &HostTriple = HostTC->getTriple();
+              llvm::Triple AMDGPUTriple("amdgcn-amd-amdhsa");
+              auto &AMDGPUOpenMPTC =
+                  ToolChains[AMDGPUTriple.str() + "/" + HostTriple.str()];
+              if (!AMDGPUOpenMPTC) {
+                AMDGPUOpenMPTC =
+                    std::make_unique<toolchains::AMDGPUOpenMPToolChain>(
+                        *this, AMDGPUTriple, *HostTC, C.getInputArgs(),
+                        Action::OFK_OpenMP);
+              }
+              TC = AMDGPUOpenMPTC.get();
             } else
               TC = &getToolChain(C.getInputArgs(), TT);
             C.addOffloadDeviceToolChain(TC, Action::OFK_OpenMP);
@@ -2975,6 +2990,15 @@ class OffloadingActionBuilder final {
       // We should always have an action for each input.
       assert(OpenMPDeviceActions.size() == ToolChains.size() &&
              "Number of OpenMP actions and toolchains do not match.");
+
+      const ToolChain *OpenMPTC =
+          C.getSingleOffloadToolChain<Action::OFK_OpenMP>();
+
+      // amdgcn does not support linking of object files, therefore we skip
+      // backend and assemble phases to output LLVM IR.
+      if (OpenMPTC->getTriple().isAMDGCN() &&
+          (CurPhase == phases::Backend || CurPhase == phases::Assemble))
+        return ABRT_Success;
 
       // The host only depends on device action in the linking phase, when all
       // the device images have to be embedded in the host image.
