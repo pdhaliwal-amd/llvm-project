@@ -10,12 +10,14 @@
 #include "AMDGPU.h"
 #include "CommonArgs.h"
 #include "InputInfo.h"
+#include "clang/Config/config.h"
 #include "clang/Driver/Compilation.h"
 #include "clang/Driver/Driver.h"
 #include "clang/Driver/DriverDiagnostic.h"
 #include "clang/Driver/Options.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/Path.h"
+#include "llvm/Support/Process.h"
 
 using namespace clang::driver;
 using namespace clang::driver::toolchains;
@@ -190,6 +192,56 @@ void AMDGPUOpenMPToolChain::addClangTargetOptions(
   CC1Args.push_back(DriverArgs.MakeArgStringRef(GpuArch));
   CC1Args.push_back("-fcuda-is-device");
   CC1Args.push_back("-emit-llvm-bc");
+
+    SmallVector<StringRef, 8> LibraryPaths;
+  // Add user defined library paths from LIBRARY_PATH.
+  llvm::Optional<std::string> LibPath =
+      llvm::sys::Process::GetEnv("LIBRARY_PATH");
+  if (LibPath) {
+    SmallVector<StringRef, 8> Frags;
+    const char EnvPathSeparatorStr[] = {llvm::sys::EnvPathSeparator, '\0'};
+    llvm::SplitString(*LibPath, Frags, EnvPathSeparatorStr);
+    for (StringRef Path : Frags)
+      LibraryPaths.emplace_back(Path.trim());
+  }
+
+  // Add path to lib / lib64 folder.
+  SmallString<256> DefaultLibPath =
+      llvm::sys::path::parent_path(getDriver().Dir);
+  llvm::sys::path::append(DefaultLibPath, Twine("lib") + CLANG_LIBDIR_SUFFIX);
+  LibraryPaths.emplace_back(DefaultLibPath.c_str());
+
+  // First check whether user specifies bc library
+  if (const Arg *A =
+          DriverArgs.getLastArg(options::OPT_libomptarget_amdgcn_bc_path_EQ)) {
+    std::string LibOmpTargetName(A->getValue());
+    if (llvm::sys::fs::exists(LibOmpTargetName)) {
+      CC1Args.push_back("-mlink-builtin-bitcode");
+      CC1Args.push_back(DriverArgs.MakeArgString(LibOmpTargetName));
+    } else {
+      getDriver().Diag(diag::err_drv_omp_offload_target_bcruntime_not_found)
+          << LibOmpTargetName;
+    }
+  } else {
+    bool FoundBCLibrary = false;
+
+    std::string LibOmpTargetName = "libomptarget-amdgcn-" + GpuArch.str() +
+                                    ".bc";
+
+    for (StringRef LibraryPath : LibraryPaths) {
+      SmallString<128> LibOmpTargetFile(LibraryPath);
+      llvm::sys::path::append(LibOmpTargetFile, LibOmpTargetName);
+      if (llvm::sys::fs::exists(LibOmpTargetFile)) {
+        CC1Args.push_back("-mlink-builtin-bitcode");
+        CC1Args.push_back(DriverArgs.MakeArgString(LibOmpTargetFile));
+        FoundBCLibrary = true;
+        break;
+      }
+    }
+    if (!FoundBCLibrary)
+      getDriver().Diag(diag::err_drv_omp_offload_target_missingbcruntime)
+          << LibOmpTargetName;
+  }
 }
 
 llvm::opt::DerivedArgList *AMDGPUOpenMPToolChain::TranslateArgs(
